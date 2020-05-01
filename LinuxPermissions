@@ -1,0 +1,128 @@
+import subprocess
+import argparse
+import os
+import sys
+
+
+class Colors:
+
+	@staticmethod
+	def red_color(color):
+		return "\033[2;31;10m" + color
+
+	@staticmethod
+	def purple_color(color):
+		return "\033[1;30;10m" + color
+
+	@staticmethod
+	def bright_blue(color):
+		return "\033[1;34;10m" + color
+
+	@staticmethod
+	def green_color(color):
+		return "\033[1;32;10m" + color
+
+	@staticmethod
+	def white_color(color):
+		return "\033[1;37;10m" + color
+
+
+class Parser:
+	def __init__(self):
+		self.args = argparse.ArgumentParser(description="Check type of permissions on linux")
+		self.args.add_argument("--group", help="Check the permissions on a group", action='store_true')
+		self.args.add_argument("--other", help="Check the permissions of other users", action='store_true')
+		self.args.add_argument("-r", help="Check for read permissions", action='store_true')
+		self.args.add_argument("-w", help="Check for write permissions", action='store_true')
+		self.args.add_argument("-x", help="Check for executable permissions", action='store_true')
+		self.args.add_argument("-rw", help="Check for read write permissions", action='store_true')
+		self.args.add_argument("-rx", help="Check for read execute permissions", action='store_true')
+		self.args.add_argument("-rwx", help="Check for read write and execute permissions", action='store_true')
+		self.args.add_argument("--dir", help="Scan a certain directory", type=self.check_dir_exists)  # if the user wants to check a certain directory
+		self.args.add_argument("--subdir", help="Scan all subdirectories in a directory", type=self.check_dir_exists)
+
+		self.args_parsed = self.args.parse_args()
+
+	def get_dir(self):
+		return self.args_parsed.dir
+
+	def return_arguments(self):
+		make_dir = vars(self.args_parsed)
+		return [key for key, value in make_dir.items() if value]
+
+	def check_dir_exists(self, directory):
+		if not os.path.isdir(directory):
+			print(Colors.red_color("\n[-] Invalid directory.\n"))
+			print("You must specify the whole path\n")
+			exit()
+		return directory
+
+class SingleDirectories(Parser):
+	def __init__(self):
+		super().__init__()
+		self.directory = self.get_dir()
+
+	def scan_terminal(self, directory):
+		return subprocess.check_output(["ls", "-l", directory]).decode().strip()
+
+	def __str__(self, files, permission_type, users):
+		return f"[+] File: {str(files)} | has {permission_type} permissions. The user --> {users}"
+
+	def results(self, permission, permission_type, index_type, op_index_type=None):
+		index_type = int(index_type)
+		for files in os.listdir(self.directory):
+			users = self.scan_terminal(files)
+			if not op_index_type:
+				if permission in users[index_type] and users[18:22] != "root":
+					yield self.__str__(files, permission_type, users[18:22])
+			else:
+				op_index_type = int(op_index_type)
+				if permission in users[index_type:op_index_type] and users[18:22] != "root":
+					yield self.__str__(files, permission_type, users[18:22])
+
+	def single_directory_read_group(self):
+		return list(self.results("r", "read", "4"))
+
+	def single_directory_write_group(self):
+		return list(self.results("w", "write", "5"))
+
+	def single_directory_execute_group(self):
+		return list(self.results("x", "execute", "6"))
+
+	def single_directory_read_write_group(self):
+		return list(self.results("rw", "read, write", "4", "6"))
+
+	def single_directory_read_write_execute_group(self):
+		return list(self.results("rwx", "read, write, execute", "4", "7"))
+
+class Arguments(SingleDirectories):
+	def __init__(self):
+		super().__init__()
+		self.arguments = self.return_arguments()
+
+	def dir_group_arguments(self):  # function for --groups | directories
+		return {
+			"r": self.single_directory_read_group,
+			"w": self.single_directory_write_group,
+			"x": self.single_directory_execute_group,
+			"rw": self.single_directory_execute_group,
+			"rwx": self.single_directory_read_write_execute_group
+		}
+
+if __name__ == '__main__':
+	parse_arguments = Parser().return_arguments()
+
+	try:
+
+		if "group" in parse_arguments and "dir" in parse_arguments:
+			get_dict = Arguments().dir_group_arguments()
+
+		answer = get_dict[parse_arguments[1]]()
+
+		for letters in answer:
+			print(letters)
+
+	except IndexError as e:
+		print(e)
+	except KeyError as e:
+		print(e)
