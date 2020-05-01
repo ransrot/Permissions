@@ -36,7 +36,6 @@ class Parser:
 		self.args.add_argument("-w", help="Check for write permissions", action='store_true')
 		self.args.add_argument("-x", help="Check for executable permissions", action='store_true')
 		self.args.add_argument("-rw", help="Check for read write permissions", action='store_true')
-		self.args.add_argument("-rx", help="Check for read execute permissions", action='store_true')
 		self.args.add_argument("-rwx", help="Check for read write and execute permissions", action='store_true')
 		self.args.add_argument("--dir", help="Scan a certain directory", type=self.check_dir_exists)  # if the user wants to check a certain directory
 		self.args.add_argument("--subdir", help="Scan all subdirectories in a directory", type=self.check_dir_exists)
@@ -45,6 +44,9 @@ class Parser:
 
 	def get_dir(self):
 		return self.args_parsed.dir
+
+	def get_subdir(self):
+		return self.args_parsed.subdir
 
 	def return_arguments(self):
 		make_dir = vars(self.args_parsed)
@@ -57,15 +59,17 @@ class Parser:
 			exit()
 		return directory
 
-class SingleDirectories(Parser):
+class SingleDirectoriesGroup(Parser, Colors):
 	def __init__(self):
 		super().__init__()
 		self.directory = self.get_dir()
 
-	def scan_terminal(self, directory):
+	def scan_terminal(self, directory, op_directory=None):
+		if op_directory:
+			os.chdir(op_directory)
 		return subprocess.check_output(["ls", "-l", directory]).decode().strip()
 
-	def __str__(self, files, permission_type, users):
+	def print_results(self, files, permission_type, users):
 		return f"[+] File: {str(files)} | has {permission_type} permissions. The user --> {users}"
 
 	def results(self, permission, permission_type, index_type, op_index_type=None):
@@ -74,11 +78,13 @@ class SingleDirectories(Parser):
 			users = self.scan_terminal(files)
 			if not op_index_type:
 				if permission in users[index_type] and users[18:22] != "root":
-					yield self.__str__(files, permission_type, users[18:22])
+					yield self.print_results(files, permission_type, users[18:22])
+					break
 			else:
 				op_index_type = int(op_index_type)
 				if permission in users[index_type:op_index_type] and users[18:22] != "root":
-					yield self.__str__(files, permission_type, users[18:22])
+					yield self.print_results(files, permission_type, users[18:22])
+					break
 
 	def single_directory_read_group(self):
 		return list(self.results("r", "read", "4"))
@@ -95,27 +101,82 @@ class SingleDirectories(Parser):
 	def single_directory_read_write_execute_group(self):
 		return list(self.results("rwx", "read, write, execute", "4", "7"))
 
-class Arguments(SingleDirectories):
+
+class Subdir(SingleDirectoriesGroup):
+	def __init__(self):
+		super().__init__()
+		self.directory = self.get_subdir()
+
+	def subdir_main(self, permission, permission_type, index_type, op_index_type=None):
+		index_type = int(index_type)
+		for subdir, dirs, files in os.walk(self.directory):
+			for file in files:
+				users = self.scan_terminal(file, subdir)
+				if not op_index_type:
+					if permission in users[index_type] and users[18:22] != "root":
+						yield self.print_results(files, permission_type, users[18:22])
+				else:
+					op_index_type = int(op_index_type)
+					if permission in users[index_type:op_index_type] and users[18:22] != "root":
+						yield self.print_results(files, permission_type, users[18:22])
+
+	def subdir_group_read(self):
+		return list(self.subdir_main("r", "read", "4"))
+
+	def subdir_write_group(self):
+		return list(self.subdir_main("w", "write", "5"))
+
+	def subdir_execute_group(self):
+		return list(self.subdir_main("x", "execute", "6"))
+
+	def subdir_read_write_group(self):
+		return list(self.subdir_main("rw", "read, write", "4", "6"))
+
+	def subdir_read_write_execute_group(self):
+		return list(self.subdir_main("rwx", "read, write, execute", "4", "7"))
+
+
+class Arguments(Subdir):
 	def __init__(self):
 		super().__init__()
 		self.arguments = self.return_arguments()
 
-	def dir_group_arguments(self):  # function for --groups | directories
+	def group_arguments(self, read, write, execute, read_write, read_write_execute):
 		return {
-			"r": self.single_directory_read_group,
-			"w": self.single_directory_write_group,
-			"x": self.single_directory_execute_group,
-			"rw": self.single_directory_execute_group,
-			"rwx": self.single_directory_read_write_execute_group
+			"r": read,
+			"w": write,
+			"x": execute,
+			"rw": read_write,
+			"rwx": read_write_execute
 		}
+
+	def dir_group_arguments(self):  # function for --groups | directories
+		return self.group_arguments(
+			self.single_directory_read_group,
+			self.single_directory_write_group,
+			self.single_directory_execute_group,
+			self.single_directory_read_write_group,
+			self.single_directory_read_write_execute_group
+			)
+
+	def subdir_group_arguments(self):
+		return self.group_arguments(
+			self.subdir_group_read,
+			self.subdir_write_group,
+			self.subdir_execute_group,
+			self.subdir_read_write_group,
+			self.subdir_read_write_execute_group
+			)
 
 if __name__ == '__main__':
 	parse_arguments = Parser().return_arguments()
-
 	try:
 
 		if "group" in parse_arguments and "dir" in parse_arguments:
 			get_dict = Arguments().dir_group_arguments()
+
+		elif "group" in parse_arguments and "subdir" in parse_arguments:
+			get_dict = Arguments().subdir_group_arguments()
 
 		answer = get_dict[parse_arguments[1]]()
 
