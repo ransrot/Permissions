@@ -32,6 +32,7 @@ class Parser:
 		self.args = argparse.ArgumentParser(description="Check type of permissions on linux")
 		self.args.add_argument("--group", help="Check the permissions on a group", action='store_true')
 		self.args.add_argument("--other", help="Check the permissions of other users", action='store_true')
+		self.args.add_argument ("--all", help="Scan all directories/subdirectories on the computer. Check for any permission.", action='store_true')
 		self.args.add_argument("-r", help="Check for read permissions", action='store_true')
 		self.args.add_argument("-w", help="Check for write permissions", action='store_true')
 		self.args.add_argument("-x", help="Check for executable permissions", action='store_true')
@@ -64,12 +65,12 @@ class SingleDirectoriesGroup(Parser, Colors):
 		super().__init__()
 		self.directory = self.get_dir()
 
-	def scan_terminal(self, directory, op_directory=None):
-		if op_directory:
-			os.chdir(op_directory)
+	def scan_terminal(self, directory):
 		return subprocess.check_output(["ls", "-l", directory]).decode().strip()
 
-	def print_results(self, files, permission_type, users):
+	def print_results(self, files, permission_type, users, directory=None):
+		if directory:
+			return f"[+] File: {str(files)} | Directory: {directory} | has {permission_type} permissions. The user --> {users}"
 		return f"[+] File: {str(files)} | has {permission_type} permissions. The user --> {users}"
 
 	def results(self, permission, permission_type, index_type, op_index_type=None):
@@ -79,12 +80,10 @@ class SingleDirectoriesGroup(Parser, Colors):
 			if not op_index_type:
 				if permission in users[index_type] and users[18:22] != "root":
 					yield self.print_results(files, permission_type, users[18:22])
-					break
 			else:
 				op_index_type = int(op_index_type)
 				if permission in users[index_type:op_index_type] and users[18:22] != "root":
 					yield self.print_results(files, permission_type, users[18:22])
-					break
 
 	def single_directory_read_group(self):
 		return list(self.results("r", "read", "4"))
@@ -107,18 +106,19 @@ class Subdir(SingleDirectoriesGroup):
 		super().__init__()
 		self.directory = self.get_subdir()
 
-	def subdir_main(self, permission, permission_type, index_type, op_index_type=None):
+	def subdir_main(self, permission, permission_type, index_type, op_index_type=None):  # fix the list here. it only takes the first element 
 		index_type = int(index_type)
 		for subdir, dirs, files in os.walk(self.directory):
-			for file in files:
-				users = self.scan_terminal(file, subdir)
+			for names in files:
+				combine_dir_file = subdir + "/" + names
+				users = self.scan_terminal(combine_dir_file)
 				if not op_index_type:
 					if permission in users[index_type] and users[18:22] != "root":
-						yield self.print_results(files, permission_type, users[18:22])
+						yield self.print_results(names, permission_type, users[18:22], subdir)
 				else:
 					op_index_type = int(op_index_type)
 					if permission in users[index_type:op_index_type] and users[18:22] != "root":
-						yield self.print_results(files, permission_type, users[18:22])
+						yield self.print_results(names, permission_type, users[18:22], subdir)
 
 	def subdir_group_read(self):
 		return list(self.subdir_main("r", "read", "4"))
@@ -134,6 +134,10 @@ class Subdir(SingleDirectoriesGroup):
 
 	def subdir_read_write_execute_group(self):
 		return list(self.subdir_main("rwx", "read, write, execute", "4", "7"))
+
+class OtherPermission(Subdir):
+	def __init__(self):
+		super().__init__()
 
 
 class Arguments(Subdir):
@@ -168,21 +172,32 @@ class Arguments(Subdir):
 			self.subdir_read_write_execute_group
 			)
 
+
+
+def get_arguments():
+	return {
+		"group": {
+			"dir": Arguments().dir_group_arguments,
+			"subdir": Arguments().subdir_group_arguments
+		},
+
+		"other": {
+			
+		}
+
+	}
+
 if __name__ == '__main__':
 	parse_arguments = Parser().return_arguments()
 	try:
+		get_dict = get_arguments()
 
-		if "group" in parse_arguments and "dir" in parse_arguments:
-			get_dict = Arguments().dir_group_arguments()
-
-		elif "group" in parse_arguments and "subdir" in parse_arguments:
-			get_dict = Arguments().subdir_group_arguments()
-
-		answer = get_dict[parse_arguments[1]]()
+		answer = get_dict[parse_arguments[0]][parse_arguments[2]]()[parse_arguments[1]]()
 
 		for letters in answer:
 			print(letters)
 
+		
 	except IndexError as e:
 		print(e)
 	except KeyError as e:
